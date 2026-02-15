@@ -3,7 +3,7 @@
 Plugin Name: YOURLS Advanced Tracker
 Plugin URI: https://github.com/hairyfred/YOURLS-Advanced-Tracker
 Description: Advanced visitor tracking and analytics for YOURLS with device fingerprinting, geolocation, and comprehensive visitor intelligence
-Version: 1.0.0
+Version: 1.0.1
 Author: hairyfred
 Author URI: https://github.com/hairyfred/YOURLS-Advanced-Tracker
 */
@@ -11,11 +11,21 @@ Author URI: https://github.com/hairyfred/YOURLS-Advanced-Tracker
 // No direct call
 if( !defined( 'YOURLS_ABSPATH' ) ) die();
 
-// Hook into YOURLS redirect to capture data before redirecting
-yourls_add_action('redirect_shorturl', 'advanced_tracker_log_click');
+// Check for beacon requests before anything else
+yourls_add_action('pre_redirect_shorturl', 'advanced_tracker_check_beacon_early', 1);
+
+// NOTE: We don't use redirect_shorturl hook anymore because we intercept in redirect_location filter
+// This prevents duplicate entries since we call advanced_tracker_log_click() manually in the filter
+
+// Handle export requests VERY early (before admin page loads)
+yourls_add_action('plugins_loaded', 'advanced_tracker_handle_export_early');
 
 // Add admin page
 yourls_add_action('plugins_loaded', 'advanced_tracker_add_page');
+
+
+// Include migration script
+require_once(dirname(__FILE__) . '/migrate-database.php');
 
 // Database table name
 define('ADVANCED_TRACKER_TABLE', YOURLS_DB_TABLE_URL . '_advanced_tracking');
@@ -52,16 +62,338 @@ function advanced_tracker_activate() {
         `referrer` text,
         `language` varchar(50) DEFAULT NULL,
         `screen_resolution` varchar(20) DEFAULT NULL,
+        `viewport_size` varchar(20) DEFAULT NULL,
+        `color_depth` int(11) DEFAULT NULL,
         `timezone` varchar(50) DEFAULT NULL,
+        `platform` varchar(100) DEFAULT NULL,
+        `cookies_enabled` tinyint(1) DEFAULT NULL,
+        `do_not_track` tinyint(1) DEFAULT NULL,
+        `touch_support` tinyint(1) DEFAULT NULL,
+        `cpu_cores` int(11) DEFAULT NULL,
+        `device_memory` float DEFAULT NULL,
+        `connection_type` varchar(50) DEFAULT NULL,
+        `webgl_vendor` varchar(200) DEFAULT NULL,
+        `webgl_renderer` varchar(200) DEFAULT NULL,
+        `canvas_fingerprint` varchar(64) DEFAULT NULL,
+        `fonts_detected` text DEFAULT NULL,
+        `plugins_list` text DEFAULT NULL,
+        `battery_charging` tinyint(1) DEFAULT NULL,
+        `battery_level` int(11) DEFAULT NULL,
         PRIMARY KEY (`id`),
         KEY `keyword` (`keyword`),
         KEY `timestamp` (`timestamp`),
-        KEY `ip_address` (`ip_address`)
+        KEY `ip_address` (`ip_address`),
+        KEY `canvas_fingerprint` (`canvas_fingerprint`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
 
     $ydb->query($sql);
 
     yourls_redirect(yourls_admin_url('plugins.php'), 301);
+}
+
+/**
+ * Handle export requests before admin page wrapper loads
+ */
+function advanced_tracker_handle_export_early() {
+    // Only handle if we're on the advanced tracker page with export parameter
+    if (isset($_GET['page']) && $_GET['page'] === 'advanced_tracker' && isset($_GET['export'])) {
+        $export_id = isset($_GET['export_id']) ? intval($_GET['export_id']) : null;
+        advanced_tracker_export_data($_GET['export'], $export_id);
+        // Function calls exit, so this won't be reached
+    }
+}
+
+/**
+ * Check for AJAX beacon requests very early (before redirect logic)
+ * Beacon requests come to /__beacon with POST data
+ */
+function advanced_tracker_check_beacon_early() {
+    // Check if this is a beacon request via special keyword
+    $request_uri = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
+    if (preg_match('#^/__beacon#', $request_uri) && isset($_POST['fingerprint'])) {
+        advanced_tracker_save_fingerprint($_POST['fingerprint']);
+
+        // Send 1x1 transparent GIF response
+        header('Content-Type: image/gif');
+        header('Content-Length: 43');
+        header('Cache-Control: no-cache, no-store, must-revalidate');
+
+        // 1x1 transparent GIF
+        echo base64_decode('R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==');
+        exit;
+    }
+}
+
+/**
+ * Override redirect to add fingerprinting JavaScript
+ * Using redirect_location filter to intercept ALL redirects before they happen
+ */
+yourls_add_filter('redirect_location', 'advanced_tracker_inject_fingerprint_js', 1, 2);
+function advanced_tracker_inject_fingerprint_js($location, $code) {
+    // Check if this is a beacon request - handle it immediately
+    $request_uri = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
+    if (preg_match('#^/__beacon#', $request_uri) && isset($_POST['fingerprint'])) {
+        advanced_tracker_save_fingerprint($_POST['fingerprint']);
+
+        // Send 1x1 transparent GIF response
+        header('Content-Type: image/gif');
+        header('Content-Length: 43');
+        header('Cache-Control: no-cache, no-store, must-revalidate');
+
+        // 1x1 transparent GIF
+        echo base64_decode('R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==');
+        exit;
+    }
+
+    // Only intercept if this is a short URL redirect (not admin redirects)
+    if (yourls_is_admin()) {
+        return $location;
+    }
+
+    // Get the keyword from the request URI
+    $request = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
+    $keyword = trim(str_replace('/', '', parse_url($request, PHP_URL_PATH)));
+
+    // Skip if no keyword or if it's a special page or beacon
+    if (empty($keyword) || $keyword === 'admin' || $keyword === '__beacon' || strpos($keyword, '?') !== false) {
+        return $location;
+    }
+
+    // Log the click since we're intercepting before the normal redirect
+    // This ensures tracking data is saved with the correct keyword
+    advanced_tracker_log_click(array($keyword, $location, $code));
+
+    // Output HTML page with JavaScript fingerprinting and meta refresh
+    ?>
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta http-equiv="refresh" content="0;url=<?php echo htmlspecialchars($location); ?>">
+        <title>Redirecting...</title>
+    </head>
+    <body>
+        <p>Redirecting...</p>
+        <?php echo advanced_tracker_get_fingerprint_script($keyword); ?>
+        <script>
+        // Also do immediate redirect via JavaScript
+        setTimeout(function() {
+            window.location.href = "<?php echo addslashes($location); ?>";
+        }, 100);
+        </script>
+    </body>
+    </html>
+    <?php
+    exit; // Prevent YOURLS from doing its own redirect
+}
+
+/**
+ * Save fingerprint data to database with proper sanitization
+ */
+function advanced_tracker_save_fingerprint($fingerprint_json) {
+    global $ydb;
+
+    // Decode and validate JSON input
+    $data = json_decode(stripslashes($fingerprint_json), true);
+    if (!$data || !is_array($data) || empty($data['keyword'])) {
+        return;
+    }
+
+    $table = ADVANCED_TRACKER_TABLE;
+
+    // Sanitize keyword - alphanumeric and hyphens only
+    $keyword = preg_replace('/[^a-zA-Z0-9\-_]/', '', $data['keyword']);
+    if (empty($keyword)) {
+        return;
+    }
+
+    // Find the most recent entry for this keyword and IP to update it
+    $ip = advanced_tracker_get_ip();
+    $sql = "SELECT id FROM `$table` WHERE keyword = :keyword AND ip_address = :ip ORDER BY timestamp DESC LIMIT 1";
+    $row = $ydb->fetchObject($sql, array('keyword' => $keyword, 'ip' => $ip));
+
+    if ($row) {
+        // Update the existing row with fingerprint data
+        $update_sql = "UPDATE `$table` SET
+            screen_resolution = :screen_resolution,
+            viewport_size = :viewport_size,
+            color_depth = :color_depth,
+            timezone = :timezone,
+            platform = :platform,
+            cookies_enabled = :cookies_enabled,
+            do_not_track = :do_not_track,
+            touch_support = :touch_support,
+            cpu_cores = :cpu_cores,
+            device_memory = :device_memory,
+            connection_type = :connection_type,
+            webgl_vendor = :webgl_vendor,
+            webgl_renderer = :webgl_renderer,
+            canvas_fingerprint = :canvas_fingerprint,
+            fonts_detected = :fonts_detected,
+            plugins_list = :plugins_list,
+            battery_charging = :battery_charging,
+            battery_level = :battery_level
+            WHERE id = :id";
+
+        // Sanitize all input data for security
+        $binds = array(
+            'id' => (int)$row->id,
+            // Screen resolution: only digits and 'x', max 20 chars
+            'screen_resolution' => isset($data['screen_resolution']) ? substr(preg_replace('/[^0-9x]/', '', $data['screen_resolution']), 0, 20) : null,
+            // Viewport size: only digits and 'x', max 20 chars
+            'viewport_size' => isset($data['viewport_size']) ? substr(preg_replace('/[^0-9x]/', '', $data['viewport_size']), 0, 20) : null,
+            // Color depth: integer only, reasonable range (1-64)
+            'color_depth' => isset($data['color_depth']) ? max(1, min(64, (int)$data['color_depth'])) : null,
+            // Timezone: sanitize to allowed characters, max 50 chars
+            'timezone' => isset($data['timezone']) ? substr(preg_replace('/[^a-zA-Z0-9\/_\-+]/', '', $data['timezone']), 0, 50) : null,
+            // Platform: sanitize, max 100 chars
+            'platform' => isset($data['platform']) ? substr(strip_tags($data['platform']), 0, 100) : null,
+            // Boolean values
+            'cookies_enabled' => isset($data['cookies_enabled']) ? (int)(bool)$data['cookies_enabled'] : null,
+            'do_not_track' => isset($data['do_not_track']) ? (int)(bool)$data['do_not_track'] : null,
+            'touch_support' => isset($data['touch_support']) ? (int)(bool)$data['touch_support'] : null,
+            // CPU cores: integer, reasonable range (1-256)
+            'cpu_cores' => isset($data['cpu_cores']) ? max(0, min(256, (int)$data['cpu_cores'])) : null,
+            // Device memory: float, reasonable range (0-1024 GB)
+            'device_memory' => isset($data['device_memory']) ? max(0, min(1024, (float)$data['device_memory'])) : null,
+            // Connection type: sanitize, max 50 chars
+            'connection_type' => isset($data['connection_type']) ? substr(preg_replace('/[^a-zA-Z0-9\-]/', '', $data['connection_type']), 0, 50) : null,
+            // WebGL vendor/renderer: sanitize, max 200 chars
+            'webgl_vendor' => isset($data['webgl_vendor']) ? substr(strip_tags($data['webgl_vendor']), 0, 200) : null,
+            'webgl_renderer' => isset($data['webgl_renderer']) ? substr(strip_tags($data['webgl_renderer']), 0, 200) : null,
+            // Canvas fingerprint: alphanumeric only, max 64 chars
+            'canvas_fingerprint' => isset($data['canvas_fingerprint']) ? substr(preg_replace('/[^a-zA-Z0-9+\/=]/', '', $data['canvas_fingerprint']), 0, 64) : null,
+            // Arrays: validate and re-encode to ensure no malicious content
+            'fonts_detected' => isset($data['fonts_detected']) && is_array($data['fonts_detected']) ?
+                json_encode(array_map(function($f) { return substr(strip_tags($f), 0, 100); }, array_slice($data['fonts_detected'], 0, 50))) : null,
+            'plugins_list' => isset($data['plugins_list']) && is_array($data['plugins_list']) ?
+                json_encode(array_map(function($p) { return substr(strip_tags($p), 0, 200); }, array_slice($data['plugins_list'], 0, 50))) : null,
+            // Battery: boolean and integer percentage
+            'battery_charging' => isset($data['battery_charging']) ? (int)(bool)$data['battery_charging'] : null,
+            'battery_level' => isset($data['battery_level']) ? max(0, min(100, (int)$data['battery_level'])) : null
+        );
+
+        $ydb->fetchAffected($update_sql, $binds);
+    }
+}
+
+/**
+ * Generate fingerprinting JavaScript
+ */
+function advanced_tracker_get_fingerprint_script($keyword) {
+    $beacon_url = yourls_site_url() . '/__beacon';
+
+    return '<script>
+(function() {
+    var fp = {
+        keyword: "' . addslashes($keyword) . '",
+        screen_resolution: screen.width + "x" + screen.height,
+        viewport_size: window.innerWidth + "x" + window.innerHeight,
+        color_depth: screen.colorDepth,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Unknown",
+        platform: navigator.platform,
+        cookies_enabled: navigator.cookieEnabled ? 1 : 0,
+        do_not_track: navigator.doNotTrack === "1" ? 1 : 0,
+        touch_support: "ontouchstart" in window ? 1 : 0,
+        cpu_cores: navigator.hardwareConcurrency || 0,
+        device_memory: navigator.deviceMemory || 0,
+        connection_type: (navigator.connection && navigator.connection.effectiveType) || "Unknown"
+    };
+
+    // WebGL fingerprinting
+    try {
+        var canvas = document.createElement("canvas");
+        var gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
+        if (gl) {
+            var debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
+            if (debugInfo) {
+                fp.webgl_vendor = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL);
+                fp.webgl_renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+            }
+        }
+    } catch(e) {}
+
+    // Canvas fingerprinting
+    try {
+        var canvas = document.createElement("canvas");
+        var ctx = canvas.getContext("2d");
+        ctx.textBaseline = "top";
+        ctx.font = "14px Arial";
+        ctx.fillStyle = "#f60";
+        ctx.fillRect(125, 1, 62, 20);
+        ctx.fillStyle = "#069";
+        ctx.fillText("Canvas FP", 2, 15);
+        ctx.fillStyle = "rgba(102, 204, 0, 0.7)";
+        ctx.fillText("Canvas FP", 4, 17);
+        var hash = canvas.toDataURL().substring(22, 86);
+        fp.canvas_fingerprint = hash;
+    } catch(e) {}
+
+    // Font detection
+    try {
+        var baseFonts = ["monospace", "sans-serif", "serif"];
+        var testFonts = ["Arial", "Verdana", "Times New Roman", "Courier New", "Georgia", "Palatino", "Garamond", "Bookman", "Comic Sans MS", "Trebuchet MS", "Impact"];
+        var detected = [];
+        var testString = "mmmmmmmmmmlli";
+        var testSize = "72px";
+        var h = document.getElementsByTagName("body")[0];
+        var s = document.createElement("span");
+        s.style.fontSize = testSize;
+        s.innerHTML = testString;
+        var defaultWidth = {};
+        var defaultHeight = {};
+        for (var i = 0; i < baseFonts.length; i++) {
+            s.style.fontFamily = baseFonts[i];
+            h.appendChild(s);
+            defaultWidth[baseFonts[i]] = s.offsetWidth;
+            defaultHeight[baseFonts[i]] = s.offsetHeight;
+            h.removeChild(s);
+        }
+        for (var i = 0; i < testFonts.length; i++) {
+            var detected_flag = false;
+            for (var j = 0; j < baseFonts.length; j++) {
+                s.style.fontFamily = testFonts[i] + "," + baseFonts[j];
+                h.appendChild(s);
+                var matched = (s.offsetWidth !== defaultWidth[baseFonts[j]] || s.offsetHeight !== defaultHeight[baseFonts[j]]);
+                h.removeChild(s);
+                if (matched) {
+                    detected_flag = true;
+                }
+            }
+            if (detected_flag) {
+                detected.push(testFonts[i]);
+            }
+        }
+        fp.fonts_detected = detected;
+    } catch(e) {}
+
+    // Plugin detection
+    try {
+        var plugins = [];
+        for (var i = 0; i < navigator.plugins.length; i++) {
+            plugins.push(navigator.plugins[i].name);
+        }
+        fp.plugins_list = plugins;
+    } catch(e) {}
+
+    // Battery status
+    if (navigator.getBattery) {
+        navigator.getBattery().then(function(battery) {
+            fp.battery_charging = battery.charging ? 1 : 0;
+            fp.battery_level = Math.round(battery.level * 100);
+            sendFingerprint();
+        });
+    } else {
+        sendFingerprint();
+    }
+
+    function sendFingerprint() {
+        var xhr = new XMLHttpRequest();
+        xhr.open("POST", "' . $beacon_url . '", true);
+        xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+        xhr.send("fingerprint=" + encodeURIComponent(JSON.stringify(fp)));
+    }
+})();
+</script>';
 }
 
 /**
@@ -341,11 +673,7 @@ function advanced_tracker_display_page() {
     global $ydb;
     $table = ADVANCED_TRACKER_TABLE;
 
-    // Handle export requests
-    if (isset($_GET['export'])) {
-        advanced_tracker_export_data($_GET['export']);
-        exit;
-    }
+    // Export is now handled in advanced_tracker_handle_export_early() before page loads
 
     // Get filter parameters
     $keyword_filter = isset($_GET['keyword']) ? $_GET['keyword'] : '';
@@ -411,27 +739,30 @@ function advanced_tracker_get_statistics($where_clause, $binds) {
     $stats['unique_visitors'] = $ydb->fetchValue("SELECT COUNT(DISTINCT ip_address) FROM `$table` $where_clause", $binds);
 
     // Top countries
+    $where_and_country = $where_clause ? $where_clause . ' AND country IS NOT NULL' : 'WHERE country IS NOT NULL';
     $stats['top_countries'] = $ydb->fetchObjects("
         SELECT country, COUNT(*) as count
-        FROM `$table` $where_clause AND country IS NOT NULL
+        FROM `$table` $where_and_country
         GROUP BY country
         ORDER BY count DESC
         LIMIT 10
     ", $binds);
 
     // Top browsers
+    $where_and_browser = $where_clause ? $where_clause . ' AND browser IS NOT NULL' : 'WHERE browser IS NOT NULL';
     $stats['top_browsers'] = $ydb->fetchObjects("
         SELECT browser, COUNT(*) as count
-        FROM `$table` $where_clause AND browser IS NOT NULL
+        FROM `$table` $where_and_browser
         GROUP BY browser
         ORDER BY count DESC
         LIMIT 10
     ", $binds);
 
     // Top OS
+    $where_and_os = $where_clause ? $where_clause . ' AND os IS NOT NULL' : 'WHERE os IS NOT NULL';
     $stats['top_os'] = $ydb->fetchObjects("
         SELECT os, COUNT(*) as count
-        FROM `$table` $where_clause AND os IS NOT NULL
+        FROM `$table` $where_and_os
         GROUP BY os
         ORDER BY count DESC
         LIMIT 10
@@ -446,9 +777,10 @@ function advanced_tracker_get_statistics($where_clause, $binds) {
     ", $binds);
 
     // Top referrers
+    $where_and_referrer = $where_clause ? $where_clause . " AND referrer != ''" : "WHERE referrer != ''";
     $stats['top_referrers'] = $ydb->fetchObjects("
         SELECT referrer, COUNT(*) as count
-        FROM `$table` $where_clause AND referrer != ''
+        FROM `$table` $where_and_referrer
         GROUP BY referrer
         ORDER BY count DESC
         LIMIT 10
@@ -469,17 +801,27 @@ function advanced_tracker_get_statistics($where_clause, $binds) {
 /**
  * Export data to CSV or JSON
  */
-function advanced_tracker_export_data($format) {
+function advanced_tracker_export_data($format, $id = null) {
     global $ydb;
     $table = ADVANCED_TRACKER_TABLE;
 
-    // Get all data
-    $sql = "SELECT * FROM `$table` ORDER BY timestamp DESC";
-    $data = $ydb->fetchObjects($sql);
+    // Get data - either single row or all
+    if ($id !== null) {
+        $sql = "SELECT * FROM `$table` WHERE id = :id";
+        $data = $ydb->fetchObjects($sql, array('id' => $id));
+        $filename_prefix = 'tracker-row-' . $id;
+    } else {
+        $sql = "SELECT * FROM `$table` ORDER BY timestamp DESC";
+        $data = $ydb->fetchObjects($sql);
+        $filename_prefix = 'advanced-tracker-export';
+    }
 
     if ($format === 'csv') {
-        header('Content-Type: text/csv');
-        header('Content-Disposition: attachment; filename="advanced-tracker-export-' . date('Y-m-d') . '.csv"');
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename_prefix . '-' . date('Y-m-d') . '.csv"');
+        header('Cache-Control: no-cache, no-store, must-revalidate');
+        header('Pragma: no-cache');
+        header('Expires: 0');
 
         $output = fopen('php://output', 'w');
 
@@ -495,9 +837,14 @@ function advanced_tracker_export_data($format) {
 
         fclose($output);
     } elseif ($format === 'json') {
-        header('Content-Type: application/json');
-        header('Content-Disposition: attachment; filename="advanced-tracker-export-' . date('Y-m-d') . '.json"');
+        header('Content-Type: application/json; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename_prefix . '-' . date('Y-m-d') . '.json"');
+        header('Cache-Control: no-cache, no-store, must-revalidate');
+        header('Pragma: no-cache');
+        header('Expires: 0');
 
-        echo json_encode($data, JSON_PRETTY_PRINT);
+        echo json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     }
+
+    exit; // Important: stop execution after export
 }
