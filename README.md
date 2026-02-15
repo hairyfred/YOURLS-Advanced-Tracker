@@ -6,7 +6,16 @@
 
 A comprehensive visitor tracking plugin for YOURLS with advanced device fingerprinting and Grabify-like functionality. Track detailed visitor analytics including IP addresses, geolocation, device information, browsers, operating systems, and advanced browser fingerprints.
 
+**NEW in v1.0.2**: Privacy controls and GDPR compliance features - customize exactly what data you collect!
+
 ## Features
+
+### Privacy Controls (v1.0.2+)
+- **Granular Tracking Control** - Enable/disable any of the 15 tracking features individually
+- **Quick Presets** - Instant configuration (Enable All, Minimal GDPR-Safe, Moderate, Disable All)
+- **GDPR Compliance Tools** - Privacy warnings for sensitive features
+- **Settings Persistence** - Your preferences are saved across sessions
+- **Access via**: Admin > Advanced Tracker Settings
 
 ### Server-Side Tracking (Instant)
 - **IP Address Tracking** - Real IP detection (handles proxies and CDNs)
@@ -69,17 +78,33 @@ A comprehensive visitor tracking plugin for YOURLS with advanced device fingerpr
    - The plugin will automatically create the necessary database table
 
 3. **Access the dashboard**
-   - After activation, go to "Advanced Tracker" in the admin menu
+   - After activation, go to "Advanced Tracker Dashboard" in the admin menu
    - Start viewing your analytics!
+
+4. **Configure privacy settings (Optional)**
+   - Navigate to "Advanced Tracker Settings" in the admin menu
+   - Choose a preset or customize individual tracking features
+   - Click "Save Settings"
 
 ## Usage
 
 ### Viewing Analytics
 
-1. Navigate to **Advanced Tracker** in your YOURLS admin panel
+1. Navigate to **Advanced Tracker Dashboard** in your YOURLS admin panel
 2. View the dashboard with statistics, charts, and detailed click data
 3. Use filters to narrow down specific URLs, date ranges, or time periods
 4. Export data for external analysis
+
+### Configuring Privacy Settings
+
+1. Navigate to **Advanced Tracker Settings** in your YOURLS admin panel
+2. Choose a quick preset:
+   - **Enable All** - Full tracking (default)
+   - **Minimal (GDPR-Safe)** - Only IP, User Agent, Referrer, Language, Timezone
+   - **Moderate** - No advanced fingerprinting
+   - **Disable All** - Turn off all tracking
+3. Or customize individual features in each category
+4. Click **Save Settings** to apply
 
 ### Filtering Data
 
@@ -151,20 +176,59 @@ For high-traffic sites, consider:
 - Using alternative services (ipinfo.io, ipstack.com)
 - Implementing caching to reduce API calls
 
-## Privacy Considerations
+## Privacy Considerations & GDPR Compliance
 
-This plugin collects detailed visitor information. Please ensure compliance with:
+This plugin collects detailed visitor information. Version 1.0.2+ includes comprehensive privacy controls to help you comply with regulations.
 
-- **GDPR** (European Union)
-- **CCPA** (California)
-- **Other privacy regulations** in your jurisdiction
+### Built-in Privacy Controls (v1.0.2+)
 
-### Recommendations:
-1. Add privacy policy disclosure about data collection
-2. Implement data retention policies
-3. Provide opt-out mechanisms if required
-4. Secure your YOURLS installation (HTTPS, authentication)
-5. Consider IP anonymization for privacy-sensitive applications
+**Settings organized by privacy sensitivity:**
+
+📊 **Basic Tracking** (Standard)
+- IP Address, User Agent, Referrer, Language, Geolocation
+
+💻 **Device & Browser** (Standard)
+- Screen, Timezone, Platform, Plugins, Touch, Do Not Track
+
+🔍 **Advanced Fingerprinting** (Privacy-Sensitive)
+- Canvas, WebGL, Audio, Fonts - *May require explicit consent*
+
+⚙️ **Hardware Info** (Privacy-Sensitive)
+- Battery, CPU Cores, Device Memory - *May require explicit consent*
+
+### Compliance Checklist
+
+✅ **Technical Controls** (Provided by this plugin):
+- [x] Granular feature toggles
+- [x] GDPR-safe preset configuration
+- [x] Privacy warnings for sensitive features
+- [x] Settings persistence
+
+⚠️ **Your Responsibilities**:
+- [ ] Add privacy policy disclosure about data collection
+- [ ] Obtain proper user consent where required by law
+- [ ] Implement data retention and deletion policies
+- [ ] Secure your YOURLS installation (HTTPS, authentication)
+- [ ] Provide data access requests mechanism (GDPR Article 15)
+- [ ] Comply with regulations in your jurisdiction (GDPR, CCPA, etc.)
+
+### Recommended Configurations
+
+**GDPR-Compliant (EU):**
+- Use "Minimal (GDPR-Safe)" preset
+- Disable advanced fingerprinting
+- Add consent banner before tracking
+- Provide privacy policy link
+
+**General Analytics:**
+- Use "Moderate" preset
+- Balances insights with privacy
+- Excludes highly identifying features
+
+**Full Tracking:**
+- Use "Enable All" (default)
+- Ensure proper consent mechanisms
+- Only for authorized security/fraud prevention use
 
 ## Performance
 
@@ -238,6 +302,13 @@ $devices = array(
 ## Security
 
 ### Built-In Protection
+
+**v1.0.2 Security Improvements:**
+- **XSS Protection**: All user data properly escaped with `htmlspecialchars()`
+- **Type Safety**: Numeric values cast to integers before output
+- **CSRF Protection**: Nonce verification for settings forms
+
+**Core Security Features:**
 - **SQL Injection**: Prepared statements with bound parameters
 - **Input Validation**: Strict sanitization of all user input
   - Keywords: Alphanumeric characters only
@@ -247,7 +318,6 @@ $devices = array(
   - Device memory: Float range 0-1024GB
   - Timezone: Sanitized characters, max 50 chars
   - Canvas fingerprint: Alphanumeric only, 64 chars max
-- **XSS Protection**: HTML tag stripping and output escaping
 - **Length Limits**: Maximum field lengths enforced on all inputs
 - **Array Validation**: Font/plugin arrays sanitized and limited to 50 items
 - **Authentication**: Requires YOURLS admin authentication for dashboard
@@ -255,14 +325,44 @@ $devices = array(
 
 ## Changelog
 
-### Version 1.0.0
+### Version 1.0.2 (2025-02-15)
+**Privacy Controls & GDPR Compliance**
+
+**Added:**
+- Comprehensive settings page with 15 individual tracking toggles
+- 4 quick-select presets (Enable All, Minimal GDPR-Safe, Moderate, Disable All)
+- Privacy sensitivity labels and warnings
+- Settings persistence via YOURLS options API
+- Individual export buttons for each tracking entry
+- Page renamed to "Advanced Tracker Dashboard"
+- New "Advanced Tracker Settings" page
+
+**Fixed:**
+- XSS vulnerabilities in admin display page
+- Nonce verification for settings form
+- Type safety for numeric outputs
+- Export CSV/JSON download headers
+
+**Security:**
+- Improved HTML output escaping with htmlspecialchars()
+- Enhanced CSRF protection
+- Better input validation
+
+### Version 1.0.1 (2025-02-14)
+- Fixed export functionality (CSV/JSON now properly download)
+- Added individual row export buttons
+- Improved export headers with UTF-8 charset
+- JSON exports use JSON_UNESCAPED_SLASHES and JSON_UNESCAPED_UNICODE
+
+### Version 1.0.0 (2025-02-13)
 - Initial release
-- Comprehensive visitor tracking
-- Interactive analytics dashboard
+- Comprehensive visitor tracking with 37 data fields
+- Interactive analytics dashboard with Chart.js
 - Data export functionality (CSV/JSON)
 - Advanced filtering options
 - IP geolocation support
 - Device, browser, OS detection
+- Advanced browser fingerprinting
 - Referrer tracking
 
 ## License
