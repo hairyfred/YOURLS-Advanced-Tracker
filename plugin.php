@@ -3,7 +3,7 @@
 Plugin Name: YOURLS Advanced Tracker
 Plugin URI: https://github.com/hairyfred/YOURLS-Advanced-Tracker
 Description: Advanced visitor tracking and analytics for YOURLS with device fingerprinting, geolocation, and comprehensive visitor intelligence
-Version: 1.0.1
+Version: 1.0.2
 Author: hairyfred
 Author URI: https://github.com/hairyfred/YOURLS-Advanced-Tracker
 */
@@ -23,12 +23,62 @@ yourls_add_action('plugins_loaded', 'advanced_tracker_handle_export_early');
 // Add admin page
 yourls_add_action('plugins_loaded', 'advanced_tracker_add_page');
 
-
 // Include migration script
 require_once(dirname(__FILE__) . '/migrate-database.php');
 
 // Database table name
 define('ADVANCED_TRACKER_TABLE', YOURLS_DB_TABLE_URL . '_advanced_tracking');
+
+// Default settings
+function advanced_tracker_get_default_settings() {
+    return array(
+        // Basic tracking (always recommended)
+        'track_ip' => true,
+        'track_user_agent' => true,
+        'track_referrer' => true,
+        'track_language' => true,
+
+        // Geolocation
+        'track_geolocation' => true,
+
+        // Device & Browser Info
+        'track_screen' => true,
+        'track_timezone' => true,
+        'track_platform' => true,
+
+        // Advanced Fingerprinting (Privacy-sensitive)
+        'track_canvas' => true,
+        'track_webgl' => true,
+        'track_audio' => true,
+        'track_fonts' => true,
+
+        // Hardware Info (Privacy-sensitive)
+        'track_battery' => true,
+        'track_hardware' => true, // CPU cores, device memory
+
+        // Network Info
+        'track_network' => true,
+
+        // Additional Features
+        'track_plugins' => true,
+        'track_touch' => true,
+        'track_dnt' => true, // Do Not Track
+    );
+}
+
+// Get plugin settings
+function advanced_tracker_get_settings() {
+    $defaults = advanced_tracker_get_default_settings();
+    $settings = yourls_get_option('advanced_tracker_settings', array());
+
+    // Merge with defaults
+    return array_merge($defaults, $settings);
+}
+
+// Save plugin settings
+function advanced_tracker_save_settings($settings) {
+    yourls_update_option('advanced_tracker_settings', $settings);
+}
 
 /**
  * Create database table on plugin activation
@@ -281,24 +331,67 @@ function advanced_tracker_save_fingerprint($fingerprint_json) {
  */
 function advanced_tracker_get_fingerprint_script($keyword) {
     $beacon_url = yourls_site_url() . '/__beacon';
+    $settings = advanced_tracker_get_settings();
 
-    return '<script>
+    $js = '<script>
 (function() {
     var fp = {
-        keyword: "' . addslashes($keyword) . '",
+        keyword: "' . addslashes($keyword) . '"';
+
+    // Basic screen info
+    if ($settings['track_screen']) {
+        $js .= ',
         screen_resolution: screen.width + "x" + screen.height,
         viewport_size: window.innerWidth + "x" + window.innerHeight,
-        color_depth: screen.colorDepth,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Unknown",
+        color_depth: screen.colorDepth';
+    }
+
+    // Timezone
+    if ($settings['track_timezone']) {
+        $js .= ',
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Unknown"';
+    }
+
+    // Platform
+    if ($settings['track_platform']) {
+        $js .= ',
         platform: navigator.platform,
-        cookies_enabled: navigator.cookieEnabled ? 1 : 0,
-        do_not_track: navigator.doNotTrack === "1" ? 1 : 0,
-        touch_support: "ontouchstart" in window ? 1 : 0,
+        cookies_enabled: navigator.cookieEnabled ? 1 : 0';
+    }
+
+    // DNT
+    if ($settings['track_dnt']) {
+        $js .= ',
+        do_not_track: navigator.doNotTrack === "1" ? 1 : 0';
+    }
+
+    // Touch support
+    if ($settings['track_touch']) {
+        $js .= ',
+        touch_support: "ontouchstart" in window ? 1 : 0';
+    }
+
+    // Hardware info
+    if ($settings['track_hardware']) {
+        $js .= ',
         cpu_cores: navigator.hardwareConcurrency || 0,
-        device_memory: navigator.deviceMemory || 0,
-        connection_type: (navigator.connection && navigator.connection.effectiveType) || "Unknown"
+        device_memory: navigator.deviceMemory || 0';
+    }
+
+    // Network info
+    if ($settings['track_network']) {
+        $js .= ',
+        connection_type: (navigator.connection && navigator.connection.effectiveType) || "Unknown"';
+    }
+
+    $js .= '
     };
 
+';
+
+    // WebGL fingerprinting
+    if ($settings['track_webgl']) {
+        $js .= '
     // WebGL fingerprinting
     try {
         var canvas = document.createElement("canvas");
@@ -312,6 +405,12 @@ function advanced_tracker_get_fingerprint_script($keyword) {
         }
     } catch(e) {}
 
+';
+    }
+
+    // Canvas fingerprinting
+    if ($settings['track_canvas']) {
+        $js .= '
     // Canvas fingerprinting
     try {
         var canvas = document.createElement("canvas");
@@ -328,6 +427,46 @@ function advanced_tracker_get_fingerprint_script($keyword) {
         fp.canvas_fingerprint = hash;
     } catch(e) {}
 
+';
+    }
+
+    // Audio fingerprinting
+    if ($settings['track_audio']) {
+        $js .= '
+    // Audio context fingerprinting
+    try {
+        var AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (AudioContext) {
+            var context = new AudioContext();
+            var oscillator = context.createOscillator();
+            var analyser = context.createAnalyser();
+            var gainNode = context.createGain();
+            var scriptProcessor = context.createScriptProcessor(4096, 1, 1);
+            gainNode.gain.value = 0;
+            oscillator.connect(analyser);
+            analyser.connect(scriptProcessor);
+            scriptProcessor.connect(gainNode);
+            gainNode.connect(context.destination);
+            scriptProcessor.onaudioprocess = function(event) {
+                var output = event.outputBuffer.getChannelData(0);
+                var hash = 0;
+                for (var i = 0; i < output.length; i++) {
+                    hash += Math.abs(output[i]);
+                }
+                fp.audio_fingerprint = hash.toString();
+                scriptProcessor.disconnect();
+            };
+            oscillator.start(0);
+            context.close();
+        }
+    } catch(e) {}
+
+';
+    }
+
+    // Font detection
+    if ($settings['track_fonts']) {
+        $js .= '
     // Font detection
     try {
         var baseFonts = ["monospace", "sans-serif", "serif"];
@@ -366,6 +505,12 @@ function advanced_tracker_get_fingerprint_script($keyword) {
         fp.fonts_detected = detected;
     } catch(e) {}
 
+';
+    }
+
+    // Plugin detection
+    if ($settings['track_plugins']) {
+        $js .= '
     // Plugin detection
     try {
         var plugins = [];
@@ -375,6 +520,12 @@ function advanced_tracker_get_fingerprint_script($keyword) {
         fp.plugins_list = plugins;
     } catch(e) {}
 
+';
+    }
+
+    // Battery status
+    if ($settings['track_battery']) {
+        $js .= '
     // Battery status
     if (navigator.getBattery) {
         navigator.getBattery().then(function(battery) {
@@ -385,7 +536,14 @@ function advanced_tracker_get_fingerprint_script($keyword) {
     } else {
         sendFingerprint();
     }
+';
+    } else {
+        $js .= '
+    sendFingerprint();
+';
+    }
 
+    $js .= '
     function sendFingerprint() {
         var xhr = new XMLHttpRequest();
         xhr.open("POST", "' . $beacon_url . '", true);
@@ -394,6 +552,8 @@ function advanced_tracker_get_fingerprint_script($keyword) {
     }
 })();
 </script>';
+
+    return $js;
 }
 
 /**
@@ -407,23 +567,26 @@ function advanced_tracker_log_click($args) {
         return;
     }
 
-    // Get IP address
-    $ip = advanced_tracker_get_ip();
+    // Get settings
+    $settings = advanced_tracker_get_settings();
 
-    // Get user agent
-    $user_agent = isset($_SERVER['HTTP_USER_AGENT']) ? $_SERVER['HTTP_USER_AGENT'] : '';
+    // Get IP address (if enabled)
+    $ip = $settings['track_ip'] ? advanced_tracker_get_ip() : null;
 
-    // Parse user agent
-    $device_info = advanced_tracker_parse_user_agent($user_agent);
+    // Get user agent (if enabled)
+    $user_agent = $settings['track_user_agent'] && isset($_SERVER['HTTP_USER_AGENT']) ? $_SERVER['HTTP_USER_AGENT'] : '';
 
-    // Get geolocation data (using ip-api.com - free, no API key needed)
-    $geo_data = advanced_tracker_get_geolocation($ip);
+    // Parse user agent (if enabled)
+    $device_info = $settings['track_user_agent'] ? advanced_tracker_parse_user_agent($user_agent) : array();
 
-    // Get referrer
-    $referrer = isset($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : '';
+    // Get geolocation data (if enabled and IP tracking is on)
+    $geo_data = ($settings['track_geolocation'] && $ip) ? advanced_tracker_get_geolocation($ip) : array();
 
-    // Get language
-    $language = isset($_SERVER['HTTP_ACCEPT_LANGUAGE']) ? substr($_SERVER['HTTP_ACCEPT_LANGUAGE'], 0, 50) : '';
+    // Get referrer (if enabled)
+    $referrer = $settings['track_referrer'] && isset($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : '';
+
+    // Get language (if enabled)
+    $language = $settings['track_language'] && isset($_SERVER['HTTP_ACCEPT_LANGUAGE']) ? substr($_SERVER['HTTP_ACCEPT_LANGUAGE'], 0, 50) : '';
 
     // Prepare data for insertion
     $table = ADVANCED_TRACKER_TABLE;
@@ -658,7 +821,8 @@ function advanced_tracker_parse_user_agent($user_agent) {
  * Add admin page
  */
 function advanced_tracker_add_page() {
-    yourls_register_plugin_page('advanced_tracker', 'Advanced Tracker', 'advanced_tracker_display_page');
+    yourls_register_plugin_page('advanced_tracker', 'Advanced Tracker Dashboard', 'advanced_tracker_display_page');
+    yourls_register_plugin_page('advanced_tracker_settings', 'Advanced Tracker Settings', 'advanced_tracker_display_settings_page');
 }
 
 /**
@@ -847,4 +1011,349 @@ function advanced_tracker_export_data($format, $id = null) {
     }
 
     exit; // Important: stop execution after export
+}
+
+/**
+ * Display settings page
+ */
+function advanced_tracker_display_settings_page() {
+    // Check if user is logged in
+    if (!defined('YOURLS_USER')) {
+        die('Unauthorized');
+    }
+
+    // Handle form submission
+    $saved = false;
+    if (isset($_POST['advanced_tracker_save_settings'])) {
+        // Verify nonce
+        yourls_verify_nonce('advanced_tracker_settings');
+
+        // Get all tracking options
+        $settings_to_save = array();
+        $defaults = advanced_tracker_get_default_settings();
+
+        foreach ($defaults as $key => $default_value) {
+            // Checkboxes are only present if checked
+            $settings_to_save[$key] = isset($_POST[$key]) ? true : false;
+        }
+
+        // Save settings
+        advanced_tracker_save_settings($settings_to_save);
+        $saved = true;
+    }
+
+    $settings = advanced_tracker_get_settings();
+    $nonce = yourls_create_nonce('advanced_tracker_settings');
+
+    ?>
+    <style>
+        .settings-container {
+            max-width: 900px;
+            margin: 20px 0;
+        }
+        .settings-section {
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .settings-section h3 {
+            margin-top: 0;
+            border-bottom: 2px solid #0073aa;
+            padding-bottom: 10px;
+        }
+        .setting-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .setting-item:last-child {
+            border-bottom: none;
+        }
+        .setting-item label {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+        }
+        .setting-item input[type="checkbox"] {
+            margin-right: 10px;
+        }
+        .setting-description {
+            color: #666;
+            font-size: 0.9em;
+            margin-left: 30px;
+        }
+        .privacy-warning {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 10px 15px;
+            margin-bottom: 20px;
+        }
+        .privacy-sensitive {
+            background: #fff8f0;
+        }
+        .save-button {
+            background: #0073aa;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .save-button:hover {
+            background: #005a87;
+        }
+        .success-message {
+            background: #d4edda;
+            border-left: 4px solid #28a745;
+            padding: 10px 15px;
+            margin-bottom: 20px;
+            color: #155724;
+        }
+        .preset-buttons {
+            margin-bottom: 20px;
+        }
+        .preset-button {
+            padding: 8px 15px;
+            margin-right: 10px;
+            border: 1px solid #ddd;
+            background: #f5f5f5;
+            cursor: pointer;
+            border-radius: 3px;
+        }
+        .preset-button:hover {
+            background: #e5e5e5;
+        }
+    </style>
+
+    <div class="wrap">
+        <h2>🔧 Advanced Tracker Settings</h2>
+
+        <?php if ($saved): ?>
+        <div class="success-message">
+            ✓ Settings saved successfully!
+        </div>
+        <?php endif; ?>
+
+        <div class="privacy-warning">
+            ⚠️ <strong>GDPR & Privacy Notice:</strong> Advanced fingerprinting techniques may be subject to privacy regulations in your jurisdiction.
+            Ensure you have proper consent mechanisms and privacy policies in place before collecting sensitive data.
+        </div>
+
+        <div class="settings-container">
+            <form method="post" action="">
+                <?php yourls_nonce_field('advanced_tracker_settings'); ?>
+
+                <div class="preset-buttons">
+                    <strong>Quick Presets:</strong>
+                    <button type="button" class="preset-button" onclick="setPreset('all')">Enable All</button>
+                    <button type="button" class="preset-button" onclick="setPreset('minimal')">Minimal (GDPR-Safe)</button>
+                    <button type="button" class="preset-button" onclick="setPreset('moderate')">Moderate</button>
+                    <button type="button" class="preset-button" onclick="setPreset('none')">Disable All</button>
+                </div>
+
+                <!-- Basic Tracking -->
+                <div class="settings-section">
+                    <h3>📊 Basic Tracking (Recommended)</h3>
+                    <p>Essential tracking data that is generally GDPR-compliant when properly disclosed.</p>
+
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" name="track_ip" <?php echo $settings['track_ip'] ? 'checked' : ''; ?>>
+                            <strong>IP Address</strong>
+                        </label>
+                    </div>
+                    <div class="setting-description">Track visitor IP addresses for geolocation and basic analytics</div>
+
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" name="track_user_agent" <?php echo $settings['track_user_agent'] ? 'checked' : ''; ?>>
+                            <strong>User Agent</strong>
+                        </label>
+                    </div>
+                    <div class="setting-description">Browser and operating system information</div>
+
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" name="track_referrer" <?php echo $settings['track_referrer'] ? 'checked' : ''; ?>>
+                            <strong>Referrer URL</strong>
+                        </label>
+                    </div>
+                    <div class="setting-description">Track where visitors came from</div>
+
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" name="track_language" <?php echo $settings['track_language'] ? 'checked' : ''; ?>>
+                            <strong>Browser Language</strong>
+                        </label>
+                    </div>
+                    <div class="setting-description">Visitor's preferred language settings</div>
+
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" name="track_geolocation" <?php echo $settings['track_geolocation'] ? 'checked' : ''; ?>>
+                            <strong>Geolocation (via IP)</strong>
+                        </label>
+                    </div>
+                    <div class="setting-description">Country, region, and city based on IP address</div>
+                </div>
+
+                <!-- Device & Browser Info -->
+                <div class="settings-section">
+                    <h3>💻 Device & Browser Information</h3>
+                    <p>Standard device and browser capabilities.</p>
+
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" name="track_screen" <?php echo $settings['track_screen'] ? 'checked' : ''; ?>>
+                            <strong>Screen Resolution</strong>
+                        </label>
+                    </div>
+                    <div class="setting-description">Screen size, resolution, and color depth</div>
+
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" name="track_timezone" <?php echo $settings['track_timezone'] ? 'checked' : ''; ?>>
+                            <strong>Timezone</strong>
+                        </label>
+                    </div>
+                    <div class="setting-description">Visitor's timezone offset</div>
+
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" name="track_platform" <?php echo $settings['track_platform'] ? 'checked' : ''; ?>>
+                            <strong>Platform Details</strong>
+                        </label>
+                    </div>
+                    <div class="setting-description">Operating system platform information</div>
+
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" name="track_plugins" <?php echo $settings['track_plugins'] ? 'checked' : ''; ?>>
+                            <strong>Browser Plugins</strong>
+                        </label>
+                    </div>
+                    <div class="setting-description">Installed browser plugins and MIME types</div>
+
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" name="track_touch" <?php echo $settings['track_touch'] ? 'checked' : ''; ?>>
+                            <strong>Touch Support</strong>
+                        </label>
+                    </div>
+                    <div class="setting-description">Touchscreen capability detection</div>
+
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" name="track_dnt" <?php echo $settings['track_dnt'] ? 'checked' : ''; ?>>
+                            <strong>Do Not Track (DNT)</strong>
+                        </label>
+                    </div>
+                    <div class="setting-description">Visitor's Do Not Track preference</div>
+                </div>
+
+                <!-- Advanced Fingerprinting -->
+                <div class="settings-section privacy-sensitive">
+                    <h3>🔍 Advanced Fingerprinting (Privacy-Sensitive)</h3>
+                    <p><strong>⚠️ Warning:</strong> These techniques create unique visitor fingerprints and may require explicit consent under GDPR/CCPA.</p>
+
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" name="track_canvas" <?php echo $settings['track_canvas'] ? 'checked' : ''; ?>>
+                            <strong>Canvas Fingerprinting</strong>
+                        </label>
+                    </div>
+                    <div class="setting-description">Unique browser rendering signature (highly identifying)</div>
+
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" name="track_webgl" <?php echo $settings['track_webgl'] ? 'checked' : ''; ?>>
+                            <strong>WebGL Fingerprinting</strong>
+                        </label>
+                    </div>
+                    <div class="setting-description">GPU and graphics capabilities (highly identifying)</div>
+
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" name="track_audio" <?php echo $settings['track_audio'] ? 'checked' : ''; ?>>
+                            <strong>Audio Context Fingerprinting</strong>
+                        </label>
+                    </div>
+                    <div class="setting-description">Audio processing characteristics (highly identifying)</div>
+
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" name="track_fonts" <?php echo $settings['track_fonts'] ? 'checked' : ''; ?>>
+                            <strong>Font Detection</strong>
+                        </label>
+                    </div>
+                    <div class="setting-description">Installed system fonts enumeration</div>
+                </div>
+
+                <!-- Hardware Info -->
+                <div class="settings-section privacy-sensitive">
+                    <h3>⚙️ Hardware Information (Privacy-Sensitive)</h3>
+                    <p>Detailed hardware specifications that may be identifying.</p>
+
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" name="track_battery" <?php echo $settings['track_battery'] ? 'checked' : ''; ?>>
+                            <strong>Battery Status</strong>
+                        </label>
+                    </div>
+                    <div class="setting-description">Device battery level and charging state</div>
+
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" name="track_hardware" <?php echo $settings['track_hardware'] ? 'checked' : ''; ?>>
+                            <strong>Hardware Details</strong>
+                        </label>
+                    </div>
+                    <div class="setting-description">CPU cores, device memory, hardware concurrency</div>
+
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" name="track_network" <?php echo $settings['track_network'] ? 'checked' : ''; ?>>
+                            <strong>Network Information</strong>
+                        </label>
+                    </div>
+                    <div class="setting-description">Connection type and effective bandwidth</div>
+                </div>
+
+                <div style="margin-top: 20px;">
+                    <button type="submit" name="advanced_tracker_save_settings" class="save-button">💾 Save Settings</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+    function setPreset(preset) {
+        const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+
+        if (preset === 'all') {
+            checkboxes.forEach(cb => cb.checked = true);
+        } else if (preset === 'none') {
+            checkboxes.forEach(cb => cb.checked = false);
+        } else if (preset === 'minimal') {
+            // GDPR-safe minimal tracking
+            checkboxes.forEach(cb => {
+                const name = cb.name;
+                cb.checked = ['track_ip', 'track_user_agent', 'track_referrer', 'track_language', 'track_timezone'].includes(name);
+            });
+        } else if (preset === 'moderate') {
+            // Moderate tracking without advanced fingerprinting
+            checkboxes.forEach(cb => {
+                const name = cb.name;
+                const disabledList = ['track_canvas', 'track_webgl', 'track_audio', 'track_fonts', 'track_battery'];
+                cb.checked = !disabledList.includes(name);
+            });
+        }
+    }
+    </script>
+    <?php
 }

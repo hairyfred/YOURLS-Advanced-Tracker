@@ -308,9 +308,9 @@ advanced_tracker_add_chartjs();
                                     <div class="fp-section">
                                         <h5>Display Info</h5>
                                         <ul>
-                                            <li><strong>Screen Resolution:</strong> <?php echo $click->screen_resolution ?: 'N/A'; ?></li>
-                                            <li><strong>Viewport Size:</strong> <?php echo $click->viewport_size ?: 'N/A'; ?></li>
-                                            <li><strong>Color Depth:</strong> <?php echo $click->color_depth ? $click->color_depth . ' bits' : 'N/A'; ?></li>
+                                            <li><strong>Screen Resolution:</strong> <?php echo htmlspecialchars($click->screen_resolution ?: 'N/A'); ?></li>
+                                            <li><strong>Viewport Size:</strong> <?php echo htmlspecialchars($click->viewport_size ?: 'N/A'); ?></li>
+                                            <li><strong>Color Depth:</strong> <?php echo $click->color_depth ? htmlspecialchars($click->color_depth) . ' bits' : 'N/A'; ?></li>
                                             <li><strong>Touch Support:</strong> <?php echo $click->touch_support ? 'Yes' : 'No'; ?></li>
                                         </ul>
                                     </div>
@@ -318,8 +318,8 @@ advanced_tracker_add_chartjs();
                                         <h5>System Info</h5>
                                         <ul>
                                             <li><strong>Platform:</strong> <?php echo htmlspecialchars($click->platform ?: 'N/A'); ?></li>
-                                            <li><strong>CPU Cores:</strong> <?php echo $click->cpu_cores ?: 'N/A'; ?></li>
-                                            <li><strong>Device Memory:</strong> <?php echo $click->device_memory ? $click->device_memory . ' GB' : 'N/A'; ?></li>
+                                            <li><strong>CPU Cores:</strong> <?php echo (int)($click->cpu_cores ?: 0) ?: 'N/A'; ?></li>
+                                            <li><strong>Device Memory:</strong> <?php echo $click->device_memory ? (int)$click->device_memory . ' GB' : 'N/A'; ?></li>
                                             <li><strong>Timezone:</strong> <?php echo htmlspecialchars($click->timezone ?: 'N/A'); ?></li>
                                         </ul>
                                     </div>
@@ -344,7 +344,7 @@ advanced_tracker_add_chartjs();
                                         <h5>Battery Status</h5>
                                         <ul>
                                             <li><strong>Charging:</strong> <?php echo $click->battery_charging ? 'Yes' : 'No'; ?></li>
-                                            <li><strong>Level:</strong> <?php echo $click->battery_level; ?>%</li>
+                                            <li><strong>Level:</strong> <?php echo (int)$click->battery_level; ?>%</li>
                                         </ul>
                                     </div>
                                     <?php endif; ?>

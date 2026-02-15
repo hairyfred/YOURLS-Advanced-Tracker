@@ -1,0 +1,211 @@
+================================================================================
+  YOURLS ADVANCED LINK TRACKER - GRABIFY-LIKE TRACKING PLUGIN
+================================================================================
+
+PROJECT SUMMARY
+---------------
+A comprehensive tracking plugin for YOURLS that provides Grabify-like
+functionality with detailed visitor analytics. Self-hosted, privacy-focused,
+and fully integrated with YOURLS.
+
+FILES CREATED
+-------------
+1. plugin.php           - Main plugin file with all tracking logic
+2. admin-page.php       - Analytics dashboard with charts and tables
+3. style.css            - Professional styling for the dashboard
+4. README.md            - Complete documentation
+5. INSTALLATION.md      - Detailed installation guide
+6. FEATURES.md          - Comprehensive feature list
+
+CORE FUNCTIONALITY
+------------------
+✓ IP address tracking (proxy-aware)
+✓ Geolocation (country, region, city, coordinates, ISP)
+✓ Device detection (type, brand, model)
+✓ Browser detection (name, version)
+✓ Operating system detection (name, version)
+✓ Referrer tracking
+✓ Language detection
+✓ Timestamp recording
+✓ Complete user agent logging
+
+DASHBOARD FEATURES
+------------------
+✓ Statistics overview cards (total clicks, unique visitors, mobile, countries)
+✓ Interactive Chart.js charts:
+  - Clicks over time (30-day line chart)
+  - Device type distribution (doughnut chart)
+  - Top browsers (bar chart)
+  - Top operating systems (bar chart)
+✓ Data tables:
+  - Top countries with percentages
+  - Top referrers
+  - Complete click history with all details
+✓ Advanced filtering:
+  - By short URL keyword
+  - By date range (from/to)
+  - Adjustable results per page
+  - Pagination support
+✓ Data export:
+  - CSV format
+  - JSON format
+
+DATABASE SCHEMA
+---------------
+Table: {prefix}_url_advanced_tracking
+Fields:
+  - id (Primary Key)
+  - keyword (Short URL)
+  - timestamp
+  - ip_address
+  - country, country_code, region, city
+  - latitude, longitude
+  - isp
+  - user_agent
+  - browser, browser_version
+  - os, os_version
+  - device_type, device_brand, device_model
+  - referrer
+  - language
+  - screen_resolution, timezone (reserved)
+
+INSTALLATION
+------------
+1. Copy folder to: yourls/user/plugins/advanced-tracker/
+2. Activate via YOURLS admin panel
+3. Database table created automatically
+4. Access dashboard: Admin menu → "Advanced Tracker"
+
+REQUIREMENTS
+------------
+- YOURLS 1.7.10+
+- PHP 7.0+ (7.4+ recommended)
+- MySQL 5.6+ with InnoDB
+- Internet connection (for ip-api.com geolocation)
+
+SECURITY FEATURES
+-----------------
+✓ Prepared SQL statements (injection protection)
+✓ Input validation and sanitization
+✓ Output escaping (XSS protection)
+✓ YOURLS authentication required
+✓ No direct file access
+
+PRIVACY NOTES
+-------------
+⚠ This plugin collects detailed visitor information
+⚠ Ensure GDPR/CCPA compliance if applicable
+⚠ Update privacy policy to disclose tracking
+⚠ Consider data retention policies
+⚠ IP anonymization available (custom implementation)
+
+PERFORMANCE
+-----------
+- Minimal redirect delay (< 100ms)
+- Database indexed for fast queries
+- Pagination for large datasets
+- Efficient SQL with prepared statements
+- API rate limit: 45 requests/minute (ip-api.com)
+
+API SERVICES
+------------
+Geolocation: ip-api.com
+  - Free tier (45 req/min)
+  - No API key required
+  - Returns: country, region, city, coordinates, ISP
+  - Can be replaced with alternatives (ipinfo.io, ipstack.com)
+
+COMPARED TO GRABIFY
+-------------------
+Similar Features:
+  ✓ IP tracking
+  ✓ Geolocation
+  ✓ Device/Browser/OS detection
+  ✓ Referrer tracking
+  ✓ Analytics dashboard
+  ✓ Click history
+  ✓ Data export
+
+Advantages Over Grabify:
+  ✓ Self-hosted (complete data ownership)
+  ✓ YOURLS integration
+  ✓ Open source & free
+  ✓ No external accounts needed
+  ✓ Unlimited links
+  ✓ No data shared with third parties
+  ✓ Customizable
+
+USE CASES
+---------
+• Marketing campaign tracking
+• Security monitoring (phishing detection)
+• Analytics and research
+• Traffic source analysis
+• Link abuse monitoring
+• Geographic audience analysis
+• Device/browser statistics
+
+CUSTOMIZATION
+-------------
+Easily customizable:
+  - Change geolocation API provider
+  - Extend device detection patterns
+  - Add custom tracking fields
+  - Modify dashboard layout
+  - Add custom export formats
+  - Implement data retention
+
+TROUBLESHOOTING
+---------------
+Common Issues:
+  1. No data appearing
+     → Check plugin activation
+     → Verify database table exists
+     → Test with public IP (not localhost)
+
+  2. Geolocation not working
+     → Check server can reach ip-api.com
+     → Private IPs won't geolocate (expected)
+     → Check API rate limits
+
+  3. Dashboard blank
+     → Enable PHP error display
+     → Check file permissions
+     → Verify all files uploaded
+
+  4. Charts not loading
+     → Check internet connection (Chart.js CDN)
+     → Check browser console for errors
+     → Disable ad blockers
+
+SUPPORT
+-------
+Documentation: README.md, INSTALLATION.md, FEATURES.md
+GitHub Issues: https://github.com/yourusername/yourls-advanced-tracker/issues
+
+LICENSE
+-------
+MIT License - Free to use, modify, and distribute
+
+DISCLAIMER
+----------
+This plugin is for legitimate analytics and security purposes only.
+Users are responsible for legal compliance and ethical usage.
+Developers are not liable for misuse.
+
+================================================================================
+Built for YOURLS | Inspired by Grabify | Powered by Chart.js & ip-api.com
+================================================================================
+
+QUICK START
+-----------
+1. Upload to: yourls/user/plugins/advanced-tracker/
+2. Activate in YOURLS admin
+3. Click "Advanced Tracker" in menu
+4. View comprehensive analytics!
+
+For detailed instructions, see INSTALLATION.md
+For complete features list, see FEATURES.md
+For general info, see README.md
+
+================================================================================
